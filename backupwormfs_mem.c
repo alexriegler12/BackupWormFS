@@ -27,8 +27,28 @@ struct dirent{
 
 
 }currentEntry;
+struct dirent* directory;
+int pos;
 #pragma pack()
-static void readNextEntry(){
+/*static void readNextEntry(){
+	read(device,&currentEntry.deleted,1);
+	read(device,&currentEntry.entType,1);
+	read(device,&currentEntry.reserved1,2);
+	read(device,&currentEntry.firstBlock,4);
+	read(device,&currentEntry.fileLength,4);
+	read(device,&currentEntry.reserved2,4);
+	read(device,&currentEntry.parentNumber,4);
+	read(device,&currentEntry.selfNumber,4);
+	read(device,&currentEntry.reserved3,4);
+	read(device,&currentEntry.reserved4,4);
+	read(device,&currentEntry.fileName,16);
+	//read(device,&currentEntry,48);
+	memcpy(&currentEntry,&directory[pos],sizeof(struct dirent));
+	pos+=1;
+	
+
+}*/
+static void readNextEntryFile(){
 	/*read(device,&currentEntry.deleted,1);
 	read(device,&currentEntry.entType,1);
 	read(device,&currentEntry.reserved1,2);
@@ -41,36 +61,44 @@ static void readNextEntry(){
 	read(device,&currentEntry.reserved4,4);
 	read(device,&currentEntry.fileName,16);*/
 	read(device,&currentEntry,48);
+	//memcpy(currentEntry,directory[pos],sizeof(struct dirent));
 	
 
 }
+
 static int findEntry(char *path,struct dirent** entry){
 	char* token;
 	int found;
+	int i;
 	int currentDir=0;
 	struct dirent* fileToOpen=malloc(sizeof(struct dirent));
-	lseek(device,2048,SEEK_SET);
-	printf("Next: %s\n",path);
+	//lseek(device,2048,SEEK_SET);
+	pos=0;
+	//printf("Next: %s\n",path);
 	//printf("Path: %s\n",path);
 
 	token=strtok(path,"/");
 	//token=strtok(path,"/");
 	//syslog(LOG_ERR, "Error %d reading dir id from ROM\n", errno);
 	//printf("firstfileName: %s\n",token);
-	readNextEntry();
-	int numEntries=currentEntry.fileLength/48;//Dirent length
+	//readNextEntry();
+	int numEntries=directory[0].fileLength/48;//Dirent length
 	while(token!=NULL){
-		lseek(device,2096,SEEK_SET);
-		
+		//lseek(device,2096,SEEK_SET);
+		pos=1;
 		//printf("token: %s currentDir: %i\n",token,currentDir);
 
 		found=0;
-		for(int i=1;i<numEntries;i++){
-			readNextEntry();
+		for(i=1;i<numEntries;i++){
+			//readNextEntry();
+			//printf("Filename: %s pos:%i i:%i\n",currentEntry.fileName,pos,i);
+
+			//printf("Filename: %s pos:%i\n",currentEntry.fileName,pos);
+
 			//printf("Next: %s\n",currentEntry.fileName);
-			if(strcmp(currentEntry.fileName,token)==0&&currentEntry.parentNumber==currentDir){
+			if(strcmp(directory[i].fileName,token)==0&&directory[i].parentNumber==currentDir){
 				//printf("currentToken: %s\ncurrent number : %i\n currentDir: %i parent: %i\n",token,currentEntry.selfNumber,currentDir,currentEntry.parentNumber);
-				currentDir=currentEntry.selfNumber;
+				currentDir=directory[i].selfNumber;
 				found=1;
 				//printf("Found\n");
 
@@ -94,7 +122,7 @@ static int findEntry(char *path,struct dirent** entry){
 
 	}
 	if(found==1){
-		memcpy(fileToOpen,&currentEntry,sizeof(struct dirent));
+		memcpy(fileToOpen,&directory[i],sizeof(struct dirent));
 		*entry=fileToOpen;
 		//printf("fileLength: %i\n",(*entry)->fileLength);
 		
@@ -141,13 +169,15 @@ static int testfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, o
 	struct dirent* fileToOpen;
 	int ret=0;
 	int dirNum;
-	lseek(device,2048,SEEK_SET);
+	//lseek(device,2048,SEEK_SET);
+	pos=0;
 	filler(buf,".",NULL,0);
 	filler(buf,"..",NULL,0);
 	
-	readNextEntry();
+	//readNextEntry();
 	//filler(buf,currentEntry.fileName,NULL,0);
-	int numEntries=currentEntry.fileLength/48;//Dirent length
+	int numEntries=directory[0].fileLength/48;//Dirent length
+	//printf("NumEntries: %i\n",numEntries);
 	if(strcmp(path,"/")==0){
 		dirNum=0;
 	}else{
@@ -155,9 +185,11 @@ static int testfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, o
 		dirNum=fileToOpen->selfNumber;
 	}
 	for(int i=1;i<numEntries;i++){
-		readNextEntry();
-		if(currentEntry.parentNumber==dirNum){
-			filler(buf,currentEntry.fileName,NULL,0);
+		//readNextEntry();
+		//printf("Filename: %s pos:%i i:%i\n",directory[i].fileName,pos,i);
+
+		if(directory[i].parentNumber==dirNum){
+			filler(buf,directory[i].fileName,NULL,0);
 		}
 
 		
@@ -214,7 +246,13 @@ int main(int argc, char** argv){
 		return 1;
 	}
 	device=open(argv[1],O_RDONLY);
-	//printf("%s\n",argv[1]);
+	lseek(device,2048,SEEK_SET);
+	readNextEntryFile();
+	directory=(struct dirent*)malloc(currentEntry.fileLength);
+	lseek(device,2048,SEEK_SET);
+
+	read(device,directory,currentEntry.fileLength);
+	printf("%s\n",argv[1]);
 	argv[1]=argv[0];
 	fuse_main(argc-1, &argv[1], &testfs_oper, NULL);
 	return 0;

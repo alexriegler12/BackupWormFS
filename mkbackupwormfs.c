@@ -21,6 +21,7 @@ struct fsdirent{
 
 
 }dent;
+char cwd[PATH_MAX];
 FILE* output;
 int fileNumber=1;
 static void writeEntry(FILE* f,struct fsdirent *d){
@@ -62,11 +63,14 @@ int getNumberOfFiles(char *path,int* num){
 			lstat(dp->d_name,&statbuf);
 			if(S_ISDIR(statbuf.st_mode)){
 				printf("Isdir\n");
+				//chdir(dp->d_name);
             			getNumberOfFiles(dp->d_name,num);
+				chdir("..");
+
 			}
 		}
         }
-	chdir("..");
+	//chdir("..");
 	closedir(dir);
 	printf("Dirnum: %i\n",dirnum);
 
@@ -78,7 +82,7 @@ int writeDirEnt(FILE* f,char* path,int parentNum,int firstSector){
 	int sect=firstSector;
 	//int curNum=parentNum
 	struct stat statbuf;
-	
+	char *filename;
 	struct dirent *dp;
     	DIR *dir = opendir(path);
 	if (!dir)
@@ -88,9 +92,14 @@ int writeDirEnt(FILE* f,char* path,int parentNum,int firstSector){
 		if (strcmp(dp->d_name, ".") != 0 && strcmp(dp->d_name, "..") != 0)
         	{
             		
-			if(strlen(dp->d_name)<15){
-				
 			
+				
+				filename=(char*)malloc(strlen(dp->d_name)+1);
+				strcpy(filename,dp->d_name);
+				if(strlen(filename)>15){//if name is longer than max
+					filename[15]=0;
+
+				}
 				memset(&dent,0,sizeof(struct fsdirent));
 				dent.deleted=1;
 				dent.reserved1=0;
@@ -99,7 +108,7 @@ int writeDirEnt(FILE* f,char* path,int parentNum,int firstSector){
 				dent.reserved4=0;
 				dent.selfNumber=fileNumber;
 				dent.parentNumber=parentNum;
-				strcpy(dent.fileName,dp->d_name);
+				strcpy(dent.fileName,filename);
 				lstat(dp->d_name,&statbuf);
 				fileNumber++;
 				if(S_ISDIR(statbuf.st_mode)){
@@ -107,8 +116,10 @@ int writeDirEnt(FILE* f,char* path,int parentNum,int firstSector){
 					dent.firstBlock=0;
 					dent.fileLength=0;
 					writeEntry(f,&dent);
+					//chdir(dp->d_name);
+					writeDirEnt(f,dp->d_name,fileNumber-1,sect);
+					chdir("..");
 
-            				writeDirEnt(f,dp->d_name,fileNumber-1,sect);
 				}else{
 					dent.entType=1;
 					writeEntry(f,&dent);
@@ -117,10 +128,10 @@ int writeDirEnt(FILE* f,char* path,int parentNum,int firstSector){
 				}
 				
 
-			}
+			
 		}
         }
-	chdir("..");
+	//chdir("..");
 	closedir(dir);
 
 
@@ -141,13 +152,18 @@ int writeSystemEntry(FILE* f,int dirLength){
 int main(int argc, char** argv){
 	char nul=0;
 	int num=0;
-	output=fopen("test.img","wb");
-	getNumberOfFiles("/home/alex/Desktop/testfs",&num);
+	if(argc<3)
+	{
+		printf("Usage: mkbackupwormfs <srcdir> <destfile>\nError: Too few arguments\n");
+		return 0;
+	}
+	output=fopen(argv[2],"wb");
+	getNumberOfFiles(argv[1],&num);
 	int directorySize=(num*48)+48;//first special entry
 	writeZeroes(output,2048);//Reserved cluster
 	printf("Num: %i",num);
 	writeSystemEntry(output,directorySize);
 	fileNumber++;
-	writeDirEnt(output,"/home/alex/Desktop/testfs",0,3);
+	writeDirEnt(output,argv[1],0,3);
 	return 0;
 }
